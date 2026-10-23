@@ -2,7 +2,9 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 
 import 'analysis/walk_forward_backtest.dart';
@@ -56,6 +58,7 @@ class DeltaSignalApp extends StatelessWidget {
 class MatchStore {
   MatchStore._();
   static final MatchStore instance = MatchStore._();
+  static const _webMatchesKey = 'delta_signal_matches';
   Future<Database>? _databaseFuture;
 
   Future<Database> get database async {
@@ -95,6 +98,16 @@ class MatchStore {
   }
 
   Future<List<MatchRecord>> all() async {
+    if (kIsWeb) {
+      final matches = await _webMatches();
+      matches.sort((a, b) {
+        final kickoffOrder = b.kickoff.compareTo(a.kickoff);
+        return kickoffOrder != 0
+            ? kickoffOrder
+            : (b.id ?? 0).compareTo(a.id ?? 0);
+      });
+      return matches;
+    }
     final rows = await (await database).query(
       'matches',
       orderBy: 'kickoff DESC, id DESC',
@@ -103,11 +116,49 @@ class MatchStore {
   }
 
   Future<void> add(MatchRecord match) async {
+    if (kIsWeb) {
+      final matches = await _webMatches();
+      final id = matches.fold<int>(
+            0,
+            (current, match) {
+              final matchId = match.id ?? 0;
+              return current > matchId ? current : matchId;
+            },
+          ) +
+          1;
+      matches.add(_withId(match, id));
+      await _saveWebMatches(matches);
+      return;
+    }
     final values = match.toMap()..remove('id');
     await (await database).insert('matches', values);
   }
 
   Future<int> importAll(List<MatchRecord> matches) async {
+    if (kIsWeb) {
+      final existing = await _webMatches();
+      var inserted = 0;
+      var nextId = existing.fold<int>(
+            0,
+            (current, match) {
+              final matchId = match.id ?? 0;
+              return current > matchId ? current : matchId;
+            },
+          ) +
+          1;
+      for (final match in matches) {
+        final duplicate = existing.any((stored) =>
+            stored.competition == match.competition &&
+            stored.homeTeam == match.homeTeam &&
+            stored.awayTeam == match.awayTeam &&
+            stored.kickoff == match.kickoff);
+        if (duplicate) continue;
+        existing.add(_withId(match, nextId++));
+        inserted++;
+      }
+      await _saveWebMatches(existing);
+      return inserted;
+    }
     final db = await database;
     return db.transaction((transaction) async {
       var inserted = 0;
@@ -135,6 +186,25 @@ class MatchStore {
   }
 
   Future<void> setResult(int id, int homeScore, int awayScore) async {
+    if (kIsWeb) {
+      final matches = await _webMatches();
+      final index = matches.indexWhere((match) => match.id == id);
+      if (index == -1) throw StateError('Partida $id nao encontrada.');
+      final match = matches[index];
+      matches[index] = MatchRecord(
+        id: match.id,
+        competition: match.competition,
+        homeTeam: match.homeTeam,
+        awayTeam: match.awayTeam,
+        homeXg: match.homeXg,
+        awayXg: match.awayXg,
+        kickoff: match.kickoff,
+        homeScore: homeScore,
+        awayScore: awayScore,
+      );
+      await _saveWebMatches(matches);
+      return;
+    }
     await (await database).update(
       'matches',
       {'home_score': homeScore, 'away_score': awayScore},
@@ -142,6 +212,38 @@ class MatchStore {
       whereArgs: [id],
     );
   }
+
+  Future<List<MatchRecord>> _webMatches() async {
+    final preferences = await SharedPreferences.getInstance();
+    final content = preferences.getString(_webMatchesKey);
+    if (content == null) return [];
+    final decoded = jsonDecode(content) as List<dynamic>;
+    return decoded
+        .map((entry) =>
+            MatchRecord.fromMap(Map<String, Object?>.from(entry as Map)))
+        .toList();
+  }
+
+  Future<void> _saveWebMatches(List<MatchRecord> matches) async {
+    final preferences = await SharedPreferences.getInstance();
+    final saved = await preferences.setString(
+      _webMatchesKey,
+      jsonEncode(matches.map((match) => match.toMap()).toList()),
+    );
+    if (!saved) throw StateError('Falha ao guardar partidas no navegador.');
+  }
+
+  MatchRecord _withId(MatchRecord match, int id) => MatchRecord(
+        id: id,
+        competition: match.competition,
+        homeTeam: match.homeTeam,
+        awayTeam: match.awayTeam,
+        homeXg: match.homeXg,
+        awayXg: match.awayXg,
+        kickoff: match.kickoff,
+        homeScore: match.homeScore,
+        awayScore: match.awayScore,
+      );
 }
 
 class DashboardScreen extends StatefulWidget {
