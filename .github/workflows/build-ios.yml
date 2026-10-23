@@ -1,0 +1,55 @@
+name: DELTA iOS Cloud Build
+
+'on':
+workflow_dispatch:
+push:
+paths:
+- "DELTA_SIGNAL_ENGINE_V5_EVOLUCAO.zip"
+- ".github/workflows/build-ios.yml"
+
+jobs:
+ios:
+runs-on: macos-latest
+steps:
+- name: Checkout repository
+uses: actions/checkout@v4
+
+```
+  - name: Extract DELTA project
+    run: |
+      test -f DELTA_SIGNAL_ENGINE_V5_EVOLUCAO.zip
+      unzip -o DELTA_SIGNAL_ENGINE_V5_EVOLUCAO.zip -d extracted
+      test -d extracted/delta_app
+      rsync -a --delete --exclude=.git extracted/delta_app/ ./
+      test -f pubspec.yaml
+      test -f lib/main.dart
+
+  - name: Set up Flutter
+    uses: subosito/flutter-action@v2
+    with:
+      channel: stable
+      cache: true
+
+  - name: Resolve dependencies
+    run: flutter pub get
+
+  - name: Analyze code
+    run: flutter analyze
+
+  - name: Run tests
+    run: flutter test
+
+  - name: Generate iOS project
+    run: flutter create --platforms=ios .
+
+  - name: Build iOS app
+    run: flutter build ios --release --no-codesign
+
+  - name: Upload build
+    uses: actions/upload-artifact@v4
+    with:
+      name: delta-ios-unsigned-build
+      path: build/ios/iphoneos/Runner.app
+      if-no-files-found: error
+      retention-days: 7
+```
