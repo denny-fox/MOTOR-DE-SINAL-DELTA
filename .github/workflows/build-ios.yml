@@ -1,11 +1,11 @@
 name: DELTA iOS Cloud Build
 
-on:
+'on':
 workflow_dispatch:
 push:
 paths:
-- 'DELTA_SIGNAL_ENGINE_V5_EVOLUCAO.zip'
-- '.github/workflows/build-ios.yml'
+- "DELTA_SIGNAL_ENGINE_V5_EVOLUCAO.zip"
+- ".github/workflows/build-ios.yml"
 
 jobs:
 ios:
@@ -15,12 +15,12 @@ steps:
 uses: actions/checkout@v4
 
 ```
-  - name: Extract recovered DELTA project
+  - name: Extract DELTA project
     run: |
       test -f DELTA_SIGNAL_ENGINE_V5_EVOLUCAO.zip
       unzip -o DELTA_SIGNAL_ENGINE_V5_EVOLUCAO.zip -d extracted
       test -d extracted/delta_app
-      rsync -a --delete --exclude='.git' extracted/delta_app/ ./
+      rsync -a --delete --exclude=.git extracted/delta_app/ ./
       test -f pubspec.yaml
       test -f lib/main.dart
 
@@ -33,19 +33,19 @@ uses: actions/checkout@v4
   - name: Resolve dependencies
     run: flutter pub get
 
-  - name: Analyze Dart code
+  - name: Analyze code
     run: flutter analyze
 
   - name: Run tests
     run: flutter test
 
-  - name: Generate iOS project files
+  - name: Generate iOS project
     run: flutter create --platforms=ios .
 
-  - name: Build unsigned iOS app
+  - name: Build iOS app
     run: flutter build ios --release --no-codesign
 
-  - name: Upload unsigned iOS build artifact
+  - name: Upload build
     uses: actions/upload-artifact@v4
     with:
       name: delta-ios-unsigned-build
